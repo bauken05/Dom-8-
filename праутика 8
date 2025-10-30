@@ -1,0 +1,538 @@
+import java.time.LocalDate;
+import java.util.*;
+import java.util.stream.Collectors;
+
+
+class ReportRecord {
+    public LocalDate date;
+    public double amount;
+    public String user;
+    public String details;
+
+    public ReportRecord(LocalDate date, double amount, String user, String details) {
+        this.date = date;
+        this.amount = amount;
+        this.user = user;
+        this.details = details;
+    }
+}
+
+interface IReport {
+    String Generate();
+
+    List<ReportRecord> getData();
+}
+
+abstract class BaseReport implements IReport {
+    protected List<ReportRecord> data = new ArrayList<>();
+
+    public List<ReportRecord> getData() {
+        return data;
+    }
+
+    public String Generate() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Report generated: \n");
+        for (ReportRecord r : data) {
+            sb.append(String.format("%s | user: %s | amount: %.2f | %s\n",
+                    r.date.toString(), r.user, r.amount, r.details));
+        }
+        return sb.toString();
+    }
+}
+
+class SalesReport extends BaseReport {
+    public SalesReport() {
+        data.add(new ReportRecord(LocalDate.of(2025, 9, 1), 1200.0, "Alice", "Order #1001"));
+        data.add(new ReportRecord(LocalDate.of(2025, 9, 3), 500.0, "Bob", "Order #1002"));
+        data.add(new ReportRecord(LocalDate.of(2025, 9, 10), 3200.0, "Charlie", "Order #1003"));
+        data.add(new ReportRecord(LocalDate.of(2025, 10, 2), 750.0, "Alice", "Order #1004"));
+        data.add(new ReportRecord(LocalDate.of(2025, 10, 15), 50.0, "Eve", "Order #1005"));
+    }
+
+    @Override
+    public String Generate() {
+        return "Sales Report:\n" + super.Generate();
+    }
+}
+
+class UserReport extends BaseReport {
+    public UserReport() {
+        data.add(new ReportRecord(LocalDate.of(2025, 8, 21), 0.0, "Alice", "Registered"));
+        data.add(new ReportRecord(LocalDate.of(2025, 9, 2), 200.0, "Bob", "First purchase"));
+        data.add(new ReportRecord(LocalDate.of(2025, 9, 5), 0.0, "Dave", "Profile update"));
+        data.add(new ReportRecord(LocalDate.of(2025, 10, 1), 1000.0, "Charlie", "Big purchase"));
+    }
+
+    @Override
+    public String Generate() {
+        return "User Report:\n" + super.Generate();
+    }
+}
+
+abstract class ReportDecorator implements IReport {
+    protected IReport wrapped;
+
+    public ReportDecorator(IReport wrapped) {
+        this.wrapped = wrapped;
+    }
+
+    public List<ReportRecord> getData() {
+        return new ArrayList<>(wrapped.getData());
+    }
+
+    public String Generate() {
+        return wrapped.Generate();
+    }
+}
+
+class DateFilterDecorator extends ReportDecorator {
+    private LocalDate from;
+    private LocalDate to;
+
+    public DateFilterDecorator(IReport wrapped, LocalDate from, LocalDate to) {
+        super(wrapped);
+        this.from = from;
+        this.to = to;
+    }
+
+    @Override
+    public List<ReportRecord> getData() {
+        return wrapped.getData().stream()
+                .filter(r -> (from == null || !r.date.isBefore(from)) &&
+                             (to == null || !r.date.isAfter(to)))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public String Generate() {
+        List<ReportRecord> filtered = getData();
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("Date filtered (%s to %s):\n", from, to));
+        for (ReportRecord r : filtered) {
+            sb.append(String.format("%s | user: %s | amount: %.2f | %s\n",
+                    r.date.toString(), r.user, r.amount, r.details));
+        }
+        return sb.toString();
+    }
+}
+
+// Sorting decorator — сортировка
+class SortingDecorator extends ReportDecorator {
+    private Comparator<ReportRecord> comparator;
+    private String criterionName;
+
+    public SortingDecorator(IReport wrapped, Comparator<ReportRecord> comparator, String criterionName) {
+        super(wrapped);
+        this.comparator = comparator;
+        this.criterionName = criterionName;
+    }
+
+    @Override
+    public List<ReportRecord> getData() {
+        List<ReportRecord> copy = new ArrayList<>(wrapped.getData());
+        copy.sort(comparator);
+        return copy;
+    }
+
+    @Override
+    public String Generate() {
+        List<ReportRecord> sorted = getData();
+        StringBuilder sb = new StringBuilder();
+        sb.append("Sorted by " + criterionName + ":\n");
+        for (ReportRecord r : sorted) {
+            sb.append(String.format("%s | user: %s | amount: %.2f | %s\n",
+                    r.date.toString(), r.user, r.amount, r.details));
+        }
+        return sb.toString();
+    }
+}
+
+class CsvExportDecorator extends ReportDecorator {
+    public CsvExportDecorator(IReport wrapped) {
+        super(wrapped);
+    }
+
+    @Override
+    public String Generate() {
+        List<ReportRecord> rows = wrapped.getData();
+        StringBuilder sb = new StringBuilder();
+        sb.append("date,user,amount,details\n");
+        for (ReportRecord r : rows) {
+            sb.append(String.format("%s,%s,%.2f,%s\n",
+                    r.date.toString(), escapeCsv(r.user), r.amount, escapeCsv(r.details)));
+        }
+        return sb.toString();
+    }
+
+    private String escapeCsv(String s) {
+        if (s.contains(",") || s.contains("\"") || s.contains("\n")) {
+            return "\"" + s.replace("\"", "\"\"") + "\"";
+        }
+        return s;
+    }
+}
+
+class PdfExportDecorator extends ReportDecorator {
+    public PdfExportDecorator(IReport wrapped) {
+        super(wrapped);
+    }
+
+    @Override
+    public String Generate() {
+        String base = wrapped.Generate();
+        StringBuilder sb = new StringBuilder();
+        sb.append("[PDF BEGIN]\n");
+        sb.append(base);
+        sb.append("[PDF END]\n");
+        return sb.toString();
+    }
+}
+
+class AmountFilterDecorator extends ReportDecorator {
+    private double minAmount;
+    private double maxAmount;
+
+    public AmountFilterDecorator(IReport wrapped, double minAmount, double maxAmount) {
+        super(wrapped);
+        this.minAmount = minAmount;
+        this.maxAmount = maxAmount;
+    }
+
+    @Override
+    public List<ReportRecord> getData() {
+        return wrapped.getData().stream()
+                .filter(r -> r.amount >= minAmount && r.amount <= maxAmount)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public String Generate() {
+        List<ReportRecord> filtered = getData();
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("Amount filtered (%.2f - %.2f):\n", minAmount, maxAmount));
+        for (ReportRecord r : filtered) {
+            sb.append(String.format("%s | user: %s | amount: %.2f | %s\n",
+                    r.date.toString(), r.user, r.amount, r.details));
+        }
+        return sb.toString();
+    }
+}
+
+class ReportBuilder {
+    private IReport baseReport;
+    private List<ReportDecorator> decorators = new ArrayList<>(); // not used as typed list, we'll chain manually
+
+    public ReportBuilder(IReport baseReport) {
+        this.baseReport = baseReport;
+    }
+
+    public ReportBuilder addDateFilter(LocalDate from, LocalDate to) {
+        baseReport = new DateFilterDecorator(baseReport, from, to);
+        return this;
+    }
+
+    public ReportBuilder addAmountFilter(double min, double max) {
+        baseReport = new AmountFilterDecorator(baseReport, min, max);
+        return this;
+    }
+
+    public ReportBuilder addSorting(Comparator<ReportRecord> comparator, String criterionName) {
+        baseReport = new SortingDecorator(baseReport, comparator, criterionName);
+        return this;
+    }
+
+    public ReportBuilder addCsvExport() {
+        baseReport = new CsvExportDecorator(baseReport);
+        return this;
+    }
+
+    public ReportBuilder addPdfExport() {
+        baseReport = new PdfExportDecorator(baseReport);
+        return this;
+    }
+
+    public IReport build() {
+        return baseReport;
+    }
+}
+
+interface IInternalDeliveryService {
+    boolean DeliverOrder(String orderId);
+    String GetDeliveryStatus(String orderId);
+    double CalculateDeliveryCost(String orderId);
+}
+
+class InternalDeliveryService implements IInternalDeliveryService {
+    private Map<String, String> store = new HashMap<>(); // orderId -> status
+    private Random rnd = new Random();
+
+    @Override
+    public boolean DeliverOrder(String orderId) {
+        System.out.println("[Internal] Start delivery for " + orderId);
+        store.put(orderId, "IN_TRANSIT");
+        if (rnd.nextDouble() < 0.95) {
+            store.put(orderId, "DELIVERED");
+            System.out.println("[Internal] Delivered order " + orderId);
+            return true;
+        } else {
+            store.put(orderId, "FAILED");
+            System.out.println("[Internal] Delivery failed for " + orderId);
+            return false;
+        }
+    }
+
+    @Override
+    public String GetDeliveryStatus(String orderId) {
+        return store.getOrDefault(orderId, "UNKNOWN");
+    }
+
+    @Override
+    public double CalculateDeliveryCost(String orderId) {
+        return 500 + (Math.abs(orderId.hashCode()) % 1000);
+    }
+}
+
+class ExternalLogisticsServiceA {
+    // ShipItem принимает itemId, возвращает shipmentId
+    public int ShipItem(int itemId) {
+        System.out.println("[External A] Shipping item id " + itemId);
+        return itemId + 1000; // shipment id
+    }
+
+    public String TrackShipment(int shipmentId) {
+        if (shipmentId % 5 == 0) return "IN_TRANSIT";
+        return "DELIVERED";
+    }
+
+    public double EstimateCost(int itemId) {
+        return 300 + (itemId % 300);
+    }
+}
+
+class LogisticsAdapterA implements IInternalDeliveryService {
+    private ExternalLogisticsServiceA service;
+    private Map<String, Integer> mapping = new HashMap<>(); // orderId -> shipmentId
+
+    public LogisticsAdapterA(ExternalLogisticsServiceA service) {
+        this.service = service;
+    }
+
+    @Override
+    public boolean DeliverOrder(String orderId) {
+        try {
+            System.out.println("[AdapterA] Adapting deliver for " + orderId);
+            int itemId = Math.abs(orderId.hashCode()) % 10000; // map orderId -> itemId
+            int shipmentId = service.ShipItem(itemId);
+            mapping.put(orderId, shipmentId);
+            String st = service.TrackShipment(shipmentId);
+            System.out.println("[AdapterA] External status: " + st);
+            return "DELIVERED".equalsIgnoreCase(st) || "IN_TRANSIT".equalsIgnoreCase(st);
+        } catch (Exception ex) {
+            System.out.println("[AdapterA] Error while delivering: " + ex.getMessage());
+            return false;
+        }
+    }
+
+    @Override
+    public String GetDeliveryStatus(String orderId) {
+        Integer sid = mapping.get(orderId);
+        if (sid == null) return "UNKNOWN";
+        return service.TrackShipment(sid);
+    }
+
+    @Override
+    public double CalculateDeliveryCost(String orderId) {
+        int itemId = Math.abs(orderId.hashCode()) % 10000;
+        return service.EstimateCost(itemId);
+    }
+}
+
+class ExternalLogisticsServiceB {
+    public String SendPackage(String packageInfo) {
+        System.out.println("[External B] Send package: " + packageInfo);
+        return "TRK-" + Math.abs(packageInfo.hashCode() % 100000);
+    }
+
+    public String CheckPackageStatus(String trackingCode) {
+        if (trackingCode.hashCode() % 2 == 0) return "DELIVERED";
+        return "IN_TRANSIT";
+    }
+
+    public double CostEstimate(String packageInfo) {
+        return 400 + (Math.abs(packageInfo.hashCode()) % 500);
+    }
+}
+
+class LogisticsAdapterB implements IInternalDeliveryService {
+    private ExternalLogisticsServiceB service;
+    private Map<String, String> mapping = new HashMap<>(); // orderId -> trackingCode
+
+    public LogisticsAdapterB(ExternalLogisticsServiceB service) {
+        this.service = service;
+    }
+
+    @Override
+    public boolean DeliverOrder(String orderId) {
+        try {
+            System.out.println("[AdapterB] Adapting deliver for " + orderId);
+            String packageInfo = "order:" + orderId + ";size:medium";
+            String tracking = service.SendPackage(packageInfo);
+            mapping.put(orderId, tracking);
+            String st = service.CheckPackageStatus(tracking);
+            System.out.println("[AdapterB] External status: " + st);
+            return "DELIVERED".equalsIgnoreCase(st) || "IN_TRANSIT".equalsIgnoreCase(st);
+        } catch (Exception ex) {
+            System.out.println("[AdapterB] Error while delivering: " + ex.getMessage());
+            return false;
+        }
+    }
+
+    @Override
+    public String GetDeliveryStatus(String orderId) {
+        String tr = mapping.get(orderId);
+        if (tr == null) return "UNKNOWN";
+        return service.CheckPackageStatus(tr);
+    }
+
+    @Override
+    public double CalculateDeliveryCost(String orderId) {
+        String packageInfo = "order:" + orderId + ";size:medium";
+        return service.CostEstimate(packageInfo);
+    }
+}
+
+class ExternalLogisticsServiceC {
+    public String scheduleDelivery(String customerJson) {
+        System.out.println("[External C] schedule: " + customerJson);
+        return "C-" + Math.abs(customerJson.hashCode() % 200000);
+    }
+
+    public String queryStatus(String token) {
+        if (token.hashCode() % 3 == 0) return "FAILED";
+        return "DELIVERED";
+    }
+
+    public double computePrice(String customerJson) {
+        return 350 + (Math.abs(customerJson.hashCode()) % 700);
+    }
+}
+
+class LogisticsAdapterC implements IInternalDeliveryService {
+    private ExternalLogisticsServiceC service;
+    private Map<String, String> mapping = new HashMap<>();
+
+    public LogisticsAdapterC(ExternalLogisticsServiceC service) {
+        this.service = service;
+    }
+
+    @Override
+    public boolean DeliverOrder(String orderId) {
+        try {
+            System.out.println("[AdapterC] Adapting deliver for " + orderId);
+            String token = service.scheduleDelivery("{orderId:" + orderId + "}");
+            mapping.put(orderId, token);
+            String st = service.queryStatus(token);
+            System.out.println("[AdapterC] External status: " + st);
+            return "DELIVERED".equalsIgnoreCase(st);
+        } catch (Exception ex) {
+            System.out.println("[AdapterC] Error while delivering: " + ex.getMessage());
+            return false;
+        }
+    }
+
+    @Override
+    public String GetDeliveryStatus(String orderId) {
+        String token = mapping.get(orderId);
+        if (token == null) return "UNKNOWN";
+        return service.queryStatus(token);
+    }
+
+    @Override
+    public double CalculateDeliveryCost(String orderId) {
+        return service.computePrice("{orderId:" + orderId + "}");
+    }
+}
+
+class DeliveryServiceFactory {
+    public static IInternalDeliveryService getService(String type) {
+        switch (type.toLowerCase()) {
+            case "internal":
+                return new InternalDeliveryService();
+            case "external_a":
+                return new LogisticsAdapterA(new ExternalLogisticsServiceA());
+            case "external_b":
+                return new LogisticsAdapterB(new ExternalLogisticsServiceB());
+            case "external_c":
+                return new LogisticsAdapterC(new ExternalLogisticsServiceC());
+            default:
+                throw new IllegalArgumentException("Unknown delivery service type: " + type);
+        }
+    }
+}
+
+public class Main {
+    public static void main(String[] args) {
+        System.out.println("=== REPORTS (Decorator) DEMO ===");
+        IReport sales = new SalesReport();
+        IReport salesBuilt = new ReportBuilder(sales)
+                .addDateFilter(LocalDate.of(2025,9,1), LocalDate.of(2025,9,30))
+                .addSorting((a,b) -> Double.compare(b.amount, a.amount), "amount_desc")
+                .addCsvExport()
+                .build();
+
+        System.out.println("--- SalesReport with date filter + sort + CSV ---");
+        System.out.println(salesBuilt.Generate());
+
+        IReport users = new UserReport();
+        IReport usersBuilt = new ReportBuilder(users)
+                .addAmountFilter(1.0, Double.MAX_VALUE)
+                .addPdfExport()
+                .build();
+
+        System.out.println("--- UserReport with amount filter + PDF ---");
+        System.out.println(usersBuilt.Generate());
+
+        IReport complex = new ReportBuilder(new SalesReport())
+                .addAmountFilter(100.0, 2000.0)
+                .addSorting((a,b) -> a.date.compareTo(b.date), "date_asc")
+                .build();
+
+        System.out.println("--- Complex Sales Report (filtered by amount, sorted by date) ---");
+        System.out.println(complex.Generate());
+
+        System.out.println("\n=== LOGISTICS (Adapter + Factory) DEMO ===");
+
+        String order1 = "ORDER-1001";
+        String order2 = "ORDER-2002";
+        String order3 = "ORDER-3003";
+        String order4 = "ORDER-4004";
+
+        IInternalDeliveryService internal = DeliveryServiceFactory.getService("internal");
+        IInternalDeliveryService extA = DeliveryServiceFactory.getService("external_a");
+        IInternalDeliveryService extB = DeliveryServiceFactory.getService("external_b");
+        IInternalDeliveryService extC = DeliveryServiceFactory.getService("external_c");
+
+        System.out.println("\n-- Internal deliver --");
+        internal.DeliverOrder(order1);
+        System.out.println("Status: " + internal.GetDeliveryStatus(order1));
+        System.out.println("Cost estimate: " + internal.CalculateDeliveryCost(order1));
+
+        System.out.println("\n-- External A deliver (adapter) --");
+        extA.DeliverOrder(order2);
+        System.out.println("Status: " + extA.GetDeliveryStatus(order2));
+        System.out.println("Cost estimate: " + extA.CalculateDeliveryCost(order2));
+
+        System.out.println("\n-- External B deliver (adapter) --");
+        extB.DeliverOrder(order3);
+        System.out.println("Status: " + extB.GetDeliveryStatus(order3));
+        System.out.println("Cost estimate: " + extB.CalculateDeliveryCost(order3));
+
+        System.out.println("\n-- External C deliver (adapter) --");
+        extC.DeliverOrder(order4);
+        System.out.println("Status: " + extC.GetDeliveryStatus(order4));
+        System.out.println("Cost estimate: " + extC.CalculateDeliveryCost(order4));
+
+        System.out.println("\n--- Demo finished ---");
+    }
+}
